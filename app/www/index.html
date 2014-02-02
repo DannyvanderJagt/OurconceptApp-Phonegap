@@ -27,19 +27,31 @@
         <title>Hello World</title>
     </head>
     <body>
+        <!-- UI --> 
         <div class="app">
-            <h1>PhoneGap</h1>
-            <div id="deviceready" class="blink">
-                <p class="event listening">Connecting to Device</p>
-                <p class="event received">Device is Ready</p>
-            </div>
+           <!-- Loading screen (Default: visible) -->
+           <div id='loading' class="view">
+               Loading....
+               
+           </div> 
+           
+           <div id='menu' class="view">
+               menu
+           </div>
+           <div id='page' class="view">
+               .
+           </div>
         </div>
+        
+       
+        
+        <!-- Javascript -->
         <script type="text/javascript" src="phonegap.js"></script>
-        <script src="http://code.jquery.com/jquery-2.1.0.min.js"></script>
+        <script src="js/tire.js"></script>
+        <script src="js/settings.js"></script>
         <script src="js/app.js"></script>
-        <script type="text/javascript" src="js/index.js"></script>
         <script type="text/javascript">
-            app.initialize();
+            App.Core.initialize();
         </script>
     </body>
 </html>
