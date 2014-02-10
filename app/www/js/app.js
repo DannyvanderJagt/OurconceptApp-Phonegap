@@ -1,5 +1,56 @@
+/* TODO:
+App.Database.isEmpty
+App.Database.get
+Check for internet in the App.Database.sync.
+*/
+/** 
+* Promise function for preventing spaghetti code.
+* @method DataHandler.Promise
+* @return {Object} It will return a object with the functions success and error. You can access the function with [name](params); if the param is a function you overwrite the existing function, if the params are no function then you call the [name] function of the returned object. 
+*/ 
+var Promise = function(){
+    this.called = {};
+};
+Promise.prototype = {
+    success:function(callback){
+        if(typeof callback === 'function'){
+             this.success = callback;
+        }else{
+            this.called['success'] = arguments;
+        }
+        return this;
+    },
+    error: function(callback){ 
+        if(typeof callback === 'function'){
+            this.error = callback;
+        }else{
+            this.called['error'] = arguments;
+        }
+        return this;
+    },
+};
+
+// Control the loading and check if everything is done loading.  (XHR);
+var Check = function(){
+};
+Check.prototype = {
+    total: 0,
+    times: 0,
+    check: function(){
+        this.times++;
+        if(this.total === this.times){
+            this.exec();   
+        }
+    },
+    exec: function(){
+        
+    }
+}
+
 App.Core = {
-    initialize: function(){
+    initialize: function(forceRefresh){
+        // Fire up the data handler.(database and sync)
+        App.Database.initialize(forceRefresh); // Params: true -> force refresh;
         this.bindEvents();
     },
     // Start listening for some events.
@@ -16,9 +67,11 @@ App.Core = {
 
 App.Event = {
     onDeviceReady: function(){
-        console.log('Device Ready!');
         // Load the app.
-        App.InitialLoading();
+        log.re('device ready');
+        if(App.Database.filled === true){
+            App.InitialLoading();
+        }
     },
 };// End of App.Event
 
@@ -36,53 +89,56 @@ App.View = {
     },
     openPage: function(id){
         // Get the data.
-        App.Data.Server.page(id).success = function(data){
-            App.Template.page(data);
+        console.log("SELECT * FROM pages WHERE id="+id);
+        App.Database.get("SELECT * FROM pages WHERE id="+id)
+        .success(function(){
+            console.log('openpage success:',JSON.parse(arguments[0][1].rows.item(0).data));
+            
+            App.Template.page(JSON.parse(arguments[0][1].rows.item(0).data));
             App.View.open(2);
-        };;
+        })
+        .error(function(){
+            console.log('openPage error', id); 
+        });
+//        App.Data.Server.page(id).success = function(data){
+//            App.Template.page(data);
+//            App.View.open(2);
+//        };
     },
+    openNews: function(){
+        
+    }
 }; // End of App.View
 
-
 // Data handler.
-App.Data = {
-    initialize: function(){}
-};
-
+App.Data = {};
 // Handles everything with the local database.
 App.Data.Local = {
 };
 
 // Handles everything with the server.
 App.Data.Server = {
-    menu: function(){
-        var s = {success:undefined, error: undefined};
-        $.ajax(App.Settings.server.url + App.Settings.server.apis.menu.url, {
-            success: function(){
-                // Callback.
-                if(typeof s.success == 'function'){ s.success(arguments[0]); };
-            },
-            error: function(){
-                // Error handling.
-                typeof s.error == 'function' ? s.error() : App.Error.ajax('server menu'); 
-            }
-        });
-        return s;
+    menu: function(tableName){
+        return this.get(App.Settings.server.url + App.Settings.server.apis.menu.url, tableName);
     },
-    page: function(id){
-        var s = {success:undefined, error: undefined};
-        console.log(App.Settings.server.url + App.Settings.server.apis.page.url.replace('{{page.object_id}}',id));
-        $.ajax(App.Settings.server.url + App.Settings.server.apis.page.url.replace('{{page.object_id}}',id), {
-            success: function(){
-                // Callback.
-                if(typeof s.success == 'function'){ s.success(arguments[0]); };
+    page: function(id, tableName){
+        console.log('page');
+       return this.get(App.Settings.server.url + App.Settings.server.apis.page.url.replace('{{page.object_id}}',id), tableName);
+    },
+    posts: function(tableName){
+        return this.get(App.Settings.server.url + App.Settings.server.apis.posts.url, tableName);  
+    },
+    get: function(url, tableName){
+        var p = new Promise();
+        $.ajax(url, {
+            success: function(){ // Callback.
+                if(typeof p.success == 'function'){ p.success(arguments[0], tableName); };
             },
-            error: function(){
-                // Error handling.
-                typeof s.error == 'function' ? s.error() : App.Error.ajax('server menu'); 
+            error: function(){ // Error handling.
+                typeof p.error == 'function' ? p.error() : App.Error.ajax('server menu'); 
             }
         });
-        return s; 
+        return p;
     }
 };
 
@@ -93,17 +149,21 @@ App.Error = {
     },
     ajax: function(msg){
         console.error('ajax: '+ msg);   
+    },
+    database: function(msg){
+        console.error('Database Error', arguments);   
     }
-    
 };
 
-App.InitialLoading = function(){
+App.InitialLoading = function(forceRefresh){
     // Load the menu.
-    var menu = App.Data.Server.menu();
-    menu.success = function(data){
+    log.re('Initial loading!');
+    App.Database.get("SELECT * FROM defaults WHERE type='menu'")
+    .success(function(){
+        console.log('data',JSON.parse(arguments[0][1].rows.item(0).data));
+        App.Template.menu(JSON.parse(arguments[0][1].rows.item(0).data));
         App.View.open(1);
-        App.Template.menu(data);
-    };
+    });
 };
 
 App.Template = {
@@ -137,14 +197,213 @@ App.Template = {
             }
         }
         console.log(html);
+        document.getElementById('menu').innerHTML = "";
         document.getElementById('menu').appendChild(html);
         $('li').on('click', function(){
             console.log($(this));
             App.View.openPage($(this).attr('objectid'));
         });
     }, // Menu template.
-    page: function(data){
-        console.log('loaded page', data, data.page.content);   
-        $('#page').html(data.page.content);
+    page: function(data){   
+        console.log('Page', data);
+        window.page = data;
+        $('#page').html(data.content);
+    },
+    news: function(data){
+        var html = document.createElement('ul');
+        document.getElementById('page').appendChild(html);
+    }
+};
+
+// Database.
+App.Database = {
+    db: undefined,
+    tx: undefined,
+    filled: false,
+    forceRefresh: false,
+    initialize: function(forceRefresh){
+        log.db('database start');
+        this.forceRefresh = forceRefresh != undefined ? this.forceRefresh = forceRefresh : false;
+        this.create();
+    },
+    create: function(){
+        var database = this.db = window.openDatabase(
+            App.Settings.database.name,
+            App.Settings.database.version,
+            App.Settings.database.displayName,
+            App.Settings.database.size);
+        // Transaction.
+        this.db.transaction(this.transaction, App.Error.database);
+    },
+    transaction: function(tx){
+        App.Database.tx = tx;
+        log.db('db transaction', arguments);
+        // Check for content.
+        if(App.Database.forceRefresh === true){
+             App.Database.createTables(tx, true); // Create the tables and sync the database.
+        }else if(App.Database.isEmpty() === true){
+            App.Database.createTables(tx, true); // Create the tables and sync the database.
+        }else{
+            App.Database.filled = true; 
+            App.InitialLoading();
+        }
+    },
+    createTables: function(tx, sync){
+        log.db('Start creating tables!');
+        for(var t in App.Settings.database.table){
+            if(t !== 'length'){
+             
+                tdata = App.Settings.database.table[t];
+                var v = [];
+                for(var q in tdata){v.push(tdata[q]);};
+                App.Database.tx.executeSql('DROP TABLE IF EXISTS '+t);
+                App.Database.tx.executeSql('CREATE TABLE '+t+' ('+v.join()+')',
+                             function(){
+                                App.Error.database('Couldnt create the database');
+                             },
+                             function(){
+                                 check(true);
+                             });
+            }
+        }
+        var times = 0,
+            check = function(){
+            times++;
+            if(times == App.Settings.database.table.length){
+                // Get all the data from the apis.
+                log.db('Tables created!');
+                // get the data.
+                if(sync){
+                    App.Database.sync();
+                }
+            }
+        };
+    },
+    sync: function(){
+        // Check for internet.
+        
+        log.db('Start syncing!');
+        var check = new Check();
+        // Loop through the apis.
+        for(var a in App.Settings.server.apis){
+            if(a != 'length' && a != 'page'){
+                check.total++;
+                App.Data.Server[a](a).success(function(data, apiName){
+                    // Store the data.
+                    App.Database.process(apiName, data); // A needs to be redefined!
+                    check.check(true);
+                    // Store the data.
+                }).error(function(){
+                    console.log('e'); 
+                });
+            }
+        }
+        // Check.
+        check.exec = function(){
+           log.db('Database is in sync!');
+//            App.InitialLoading();
+        };
+    },
+    get: function(query){
+        var p = new Promise();
+        // Types: page, posts, menu;
+        App.Database.db.transaction(function(tx){
+           console.log('transaction get');
+            tx.executeSql(query, function(){
+                // Error.
+                log.db('error get'+query);
+            },
+            function(){
+                // Success.
+                log.db('Succes get:'+query);
+                window.result = arguments;
+                p.success(arguments);
+            });
+        },function(){
+            log.db('Transaction get error');
+            console.log(arguments);
+            p.error();
+        }, function(){
+             log.db('Transaction get success');
+        });
+        return p;
+    },
+    process: function(api, data){
+        // Prepare the data for saving to the database.
+        var check = new Check();
+        if(api === 'menu'){
+            App.Database.set("INSERT INTO defaults (type, data) VALUES (?,?)",['menu', JSON.stringify(data)]);
+            // Get and Save the pages.
+            for(var p in data.pages){
+                p = data.pages[p];
+                if(p && p.meta && p.meta.app && p.meta.app == 'true' && !p.meta.nieuws){
+                    check.total++;
+                    App.Database.loadAndSavePage(p.object_id)
+                    .success(function(){check.check(true);}).error(function(){App.Error.database("Couldn't save the page");});
+                    // Check for children.
+                    if(p.children && p.children.length > 0){
+                        var children = p.children;
+                        for(var child in children){
+                            child = children[child];
+                            if(child && child.meta && child.meta.app && child.meta.app == 'true' && !child.meta.nieuws){
+                                console.log('CHILD', child);  
+                                 App.Database.loadAndSavePage(child.object_id)
+                                .success(function(){check.check(true);}).error(function(){App.Error.database("Couldn't save the page");});
+                            }
+                        }
+                    }
+                }  
+            }
+            // Check.
+            check.exec = function(){
+                 log.db('Pages is in sync!'); 
+                App.InitialLoading();
+            };
+        }else if(api === 'posts'){
+            // Save the posts.
+            for(var p in data.posts){
+                App.Database.set("INSERT INTO posts (id, data) VALUES (?,?)",[data.posts[p].id, JSON.stringify(data.posts[p])]);   
+            }
+        }
+    },
+    loadAndSavePage: function(object_id){
+        // Get and save the page.
+        var p = new Promise();
+        App.Data.Server.page(object_id)
+        .success(function(data){
+            // Store the date.
+            App.Database.set("INSERT INTO pages (id, data) VALUES(?,?)",[data.page.id, JSON.stringify(data.page)]);
+            p.success();
+        })
+        .error(function(){
+            p.error();
+        });  
+        return p;
+    },
+    set: function(query, values){
+        var p = new Promise();
+        this.db.transaction(function(tx){
+           tx.executeSql(query, values, function(){
+               p.success(arguments);
+            },function(){
+                App.Error.database("App.Database.set error",arguments);
+                p.error(arguments);
+            });
+         }, App.Error.database);
+        return p;
+    },
+    isEmpty: function(){
+        return false; 
+    }
+};
+
+// Debug console.
+var d = new Date();
+var log = {
+    db: function(msg){
+        console.log('%c '+msg + " : " +((new Date().getTime() - d) /1000), 'background: green; color: white');  
+    },
+    re: function(msg){
+     console.log('%c '+msg + " : " +((new Date().getTime() - d) /1000), 'background: purple; color: white');    
     }
 };

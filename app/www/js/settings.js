@@ -8,6 +8,7 @@ window.App.Settings = {
     server: {
         url: "http://ourconcepts.serverict.nl/",
         apis: {
+            length: 3,
             menu : {
                 db: 'defaults',
                 params: {
@@ -19,30 +20,35 @@ window.App.Settings = {
                 db: 'pages',
                 params: {
                 },
-                url: "?json=get_page&id={{page.object_id}}&callback=?"
+                url: "?json=get_page&id={{page.object_id}}&callback=?",
+                findId:'',
             },
-            post: {
+            posts: {
                 db: "posts",
                 params:{
                 },
                 url: "?json=get_posts&callback=?",
+                findId: ''
             }
         }
     },
     database: {
+        name: "ourconcepts",
+        version: "1.0",
+        displayName: "OurconceptsApp-Database",
+        size: 5 * 1024 * 1024, // 5MB
         table: {
+            length: 3,
             defaults: {
                 type: "type unique",
                 data: "data"
             },
             pages: {
                 id: "id unique",
-                title: "title",
                 data: "data"
             },
             posts: {
                 id: "id unique",
-                title: "title",
                 data: "data"
             }
         }
