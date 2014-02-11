@@ -72,6 +72,9 @@ App.Event = {
         if(App.Database.filled === true){
             App.InitialLoading();
         }
+        document.addEventListener("backbutton", function(e){
+            App.View.pop();
+        }, false);
     },
 };// End of App.Event
 
@@ -81,11 +84,13 @@ App.View = {
     curPos:0,
     open: function(pos){
         this.curPos = pos;
-        $('.view').css('-webkit-transform','translateX(-'+(this.curPos*100)+'%)');
+        $('.app').css('-webkit-transform','translateX(-'+(this.curPos*(100/3))+'%)');
     },
     pop: function(){
-        this.curPos--;
-        $('.view').css('-webkit-transform','translateX(-'+(this.curPos*100)+'%)');
+        if(this.curPos >= 2){
+            this.curPos--;
+            $('.app').css('-webkit-transform','translateX(-'+(this.curPos*(100/3))+'%)');
+        }
     },
     openPage: function(id){
         // Get the data.
@@ -93,20 +98,23 @@ App.View = {
         App.Database.get("SELECT * FROM pages WHERE id="+id)
         .success(function(){
             console.log('openpage success:',JSON.parse(arguments[0][1].rows.item(0).data));
-            
             App.Template.page(JSON.parse(arguments[0][1].rows.item(0).data));
             App.View.open(2);
         })
         .error(function(){
             console.log('openPage error', id); 
         });
-//        App.Data.Server.page(id).success = function(data){
-//            App.Template.page(data);
-//            App.View.open(2);
-//        };
     },
     openNews: function(){
-        
+        // Get the data.
+        App.Database.get("SELECT * FROM posts")
+        .success(function(){
+            App.Template.news(arguments[0][1].rows);
+            App.View.open(2);
+        })
+        .error(function(){
+            console.log('openPage error', id); 
+        });
     }
 }; // End of App.View
 
@@ -167,51 +175,82 @@ App.InitialLoading = function(forceRefresh){
 };
 
 App.Template = {
+    createMenuElement:function(innerHtml, objectid, news, child){
+        var li = document.createElement('li');
+        var a = document.createElement('a');
+        a.innerHTML = innerHtml;
+        a.setAttribute('href','#');
+        a.setAttribute('objectid',objectid);
+        if(news){
+            a.setAttribute('news','true');   
+        }else{
+            a.setAttribute('page','true');   
+        }
+        if(child){
+            li.className += 'child';   
+        }
+        li.appendChild(a);
+        return li;
+    },  
     menu: function(data){
-        console.log(data);
         var html = document.createElement('ul');
         // Generate template.
         var pages = data.pages;
         for(var p in pages){
             p = pages[p];
             if(p.meta && p.meta.app == 'true'){
-                var li = document.createElement('li');
-                li.innerHTML= p.title;
-                li.setAttribute('objectid',p.object_id);
+                var li = App.Template.createMenuElement(p.title, p.object_id, p.meta.nieuws);
                 // Check for children.
+                 html.appendChild(li);
                 var children = p.children;
                 if(children && children.length > 0){
-                    var ul = document.createElement('ul');
                     for(var c in children){
                         c = children[c];
                         if( c &&  c.meta && c.meta.app == 'true'){
-                            var lic = document.createElement('li');
-                            lic.setAttribute('objectid',c.object_id);
-                            lic.innerHTML =  c.title;
-                            ul.appendChild(lic);
+                            var lic = App.Template.createMenuElement(c.title, c.object_id, c.meta.nieuws, true);
+                            html.appendChild(lic);
                         }
                     }
-                    li.appendChild(ul);
                 }
-                html.appendChild(li);
             }
         }
         console.log(html);
-        document.getElementById('menu').innerHTML = "";
-        document.getElementById('menu').appendChild(html);
-        $('li').on('click', function(){
+        document.getElementById('menu').getElementsByClassName('content')[0].innerHTML = "";
+        document.getElementById('menu').getElementsByClassName('content')[0].appendChild(html);
+        $('#menu .content a').on('mousedown', function(){
             console.log($(this));
-            App.View.openPage($(this).attr('objectid'));
+            if($(this).attr('news') === 'true'){
+                App.View.openNews();
+            }else{
+                App.View.openPage($(this).attr('objectid'));   
+            }
         });
     }, // Menu template.
     page: function(data){   
-        console.log('Page', data);
         window.page = data;
-        $('#page').html(data.content);
+        $('#page .content').html(data.content);
     },
     news: function(data){
-        var html = document.createElement('ul');
-        document.getElementById('page').appendChild(html);
+        var html;
+        window.news = data;
+        if(news.length > 0){
+            html = document.createElement('ul');
+            for(var i = 0, len = news.length; i < len; i++){
+                var post = JSON.parse(data.item(i).data);
+                var li = document.createElement('li');
+                var title = document.createElement('h1');
+                title.innerHTML = post.title;
+                li.appendChild(title);
+                var content = document.createElement('div');
+                content.innerHTML = post.content;
+                li.appendChild(content);
+                html.appendChild(li);
+            }
+            document.getElementById('page').getElementsByClassName('content')[0].innerHTML = "";
+            document.getElementById('page').getElementsByClassName('content')[0].appendChild(html);
+        }else{
+            // No posts.   
+        }
     }
 };
 
@@ -239,13 +278,17 @@ App.Database = {
         App.Database.tx = tx;
         log.db('db transaction', arguments);
         // Check for content.
+        // Check for empty.
         if(App.Database.forceRefresh === true){
-             App.Database.createTables(tx, true); // Create the tables and sync the database.
-        }else if(App.Database.isEmpty() === true){
             App.Database.createTables(tx, true); // Create the tables and sync the database.
         }else{
-            App.Database.filled = true; 
-            App.InitialLoading();
+            App.Database.isEmpty().success(function(){
+                App.Database.filled = true; 
+                App.InitialLoading();
+            })
+            .error(function(){
+               App.Database.createTables(tx, true); // Create the tables and sync the database. 
+            });
         }
     },
     createTables: function(tx, sync){
@@ -393,7 +436,14 @@ App.Database = {
         return p;
     },
     isEmpty: function(){
-        return false; 
+        var p = new Promise();
+        // Check for all the tables.
+        App.Database.get("SELECT name FROM sqlite_master WHERE type='table'")
+        .success(function(){
+           arguments[0][1].rows.length === 4 ? p.success() : p.error();
+        })
+        .error(p.error);
+        return p;
     }
 };
 
